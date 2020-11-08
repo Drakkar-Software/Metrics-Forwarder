@@ -1,50 +1,32 @@
 package main
 
 import (
-	"crypto/tls"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/vulcand/oxy/forward"
+	"github.com/vulcand/oxy/testutils"
 )
 
 func main() {
-	//controller.Init()
-	e := echo.New()
-	e.Use(middleware.Logger())
-	// Setup proxy
-	url1, err := url.Parse(getURL())
-	log.Println("Routing requests to:", url1)
-	if err != nil {
-		e.Logger.Fatal(err)
+	url := getURL()
+	log.Println("Routing requests to:", url)
+	// Forwards incoming requests to whatever location URL points to, adds proper forwarding headers
+	fwd, _ := forward.New()
+
+	redirect := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// let us forward this request to another server
+		req.URL = testutils.ParseURI(url)
+		fwd.ServeHTTP(w, req)
+	})
+
+	// that's it! our reverse proxy is ready!
+	s := &http.Server{
+		Addr:    ":"+getPort(),
+		Handler: redirect,
 	}
-	targets := []*middleware.ProxyTarget{
-		{
-			URL: url1,
-		},
-	}
-	e.Use(getProxy(targets))
-
-	e.Logger.Fatal(e.Start(":" + getPort()))
-}
-
-func getProxy(targets []*middleware.ProxyTarget) echo.MiddlewareFunc {
-	c := middleware.DefaultProxyConfig
-
-	// register forward urls
-	c.Balancer = middleware.NewRoundRobinBalancer(targets)
-
-	// force HTTP/1.1 protocol (from https://github.com/golang/go/issues/39302#issuecomment-635810949)
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.ForceAttemptHTTP2 = false
-	tr.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
-	tr.TLSClientConfig = &tls.Config{}
-	c.Transport = tr
-
-	return middleware.ProxyWithConfig(c)
+	s.ListenAndServe()
 }
 
 func getURL() string {
@@ -64,4 +46,3 @@ func getPort() string {
 	}
 	return port
 }
-
