@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/tls"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 
@@ -15,7 +17,7 @@ func main() {
 	e.Use(middleware.Logger())
 	// Setup proxy
 	url1, err := url.Parse(getURL())
-	log.Println("Routing requests to: ", url1)
+	log.Println("Routing requests to:", url1)
 	if err != nil {
 		e.Logger.Fatal(err)
 	}
@@ -24,9 +26,25 @@ func main() {
 			URL: url1,
 		},
 	}
-	e.Use(middleware.Proxy(middleware.NewRoundRobinBalancer(targets)))
+	e.Use(getProxy(targets))
 
 	e.Logger.Fatal(e.Start(":" + getPort()))
+}
+
+func getProxy(targets []*middleware.ProxyTarget) echo.MiddlewareFunc {
+	c := middleware.DefaultProxyConfig
+
+	// register forward urls
+	c.Balancer = middleware.NewRoundRobinBalancer(targets)
+
+	// force HTTP/1.1 protocol (from https://github.com/golang/go/issues/39302#issuecomment-635810949)
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ForceAttemptHTTP2 = false
+	tr.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
+	tr.TLSClientConfig = &tls.Config{}
+	c.Transport = tr
+
+	return middleware.ProxyWithConfig(c)
 }
 
 func getURL() string {
@@ -34,9 +52,6 @@ func getURL() string {
 
 	if metricsServerURL == "" {
 		panic("Metrics server url not found in environment variables. Please set METRICS_SERVER_URL env variable.")
-	}
-	if string(metricsServerURL[len(metricsServerURL)-1]) == "/" {
-		metricsServerURL = metricsServerURL[:len(metricsServerURL)-1]
 	}
 
 	return metricsServerURL
