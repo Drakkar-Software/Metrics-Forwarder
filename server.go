@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/url"
 	"os"
 
@@ -14,6 +15,7 @@ func main() {
 	e.Use(middleware.Logger())
 	// Setup proxy
 	url1, err := url.Parse(getURL())
+	log.Println("Routing requests to: ", url1)
 	if err != nil {
 		e.Logger.Fatal(err)
 	}
